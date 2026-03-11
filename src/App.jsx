@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import jsPDF from "jspdf";
 
 function generateCardNumber() {
   const year = new Date().getFullYear();
@@ -114,6 +115,8 @@ function createInitialForm() {
 }
 
 const initial = createInitialForm();
+const STORAGE_CURRENT = "kmcr-current-form";
+const STORAGE_HISTORY = "kmcr-saved-cards";
 
 function safeValue(value, fallback = "...") {
   if (value === undefined || value === null) return fallback;
@@ -158,6 +161,37 @@ function buildGeneratedText(form) {
   ].join("\n");
 }
 
+function getSavedCards() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_HISTORY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCards(cards) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_HISTORY, JSON.stringify(cards));
+}
+
+function saveCurrentForm(form) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(STORAGE_CURRENT, JSON.stringify(form));
+}
+
+function loadCurrentForm() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_CURRENT);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function copyTextWithFallback(text) {
   if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
     try {
@@ -191,6 +225,35 @@ async function copyTextWithFallback(text) {
   } catch (error) {
     return { ok: false, method: "manual", error };
   }
+}
+
+function downloadPdf(title, text) {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const margin = 12;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const maxWidth = pageWidth - margin * 2;
+  const lines = doc.splitTextToSize(text, maxWidth);
+  let y = 16;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text(title, margin, y);
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+
+  lines.forEach((line) => {
+    if (y > pageHeight - margin) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.text(line, margin, y);
+    y += 5;
+  });
+
+  doc.save(`${title.replace(/[^a-zA-Z0-9-_]/g, "_")}.pdf`);
 }
 
 function runTests() {
@@ -231,79 +294,25 @@ function runTests() {
     { name: "GCS sumuje się poprawnie", pass: calculateGCS(example.badanie) === "15" },
     { name: "Konwersja daty do input działa", pass: displayDateToInputValue("10-03-2026") === "2026-03-10" },
     { name: "Konwersja daty z input działa", pass: inputDateToDisplayValue("2026-03-10") === "10-03-2026" },
+    { name: "Historia kart jest tablicą", pass: Array.isArray(getSavedCards()) },
   ];
 }
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#f8fafc",
-    color: "#0f172a",
-    fontFamily: "Inter, Arial, sans-serif",
-    padding: 16,
-  },
-  container: {
-    maxWidth: 1400,
-    margin: "0 auto",
-  },
-  topBar: {
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 16,
-    marginBottom: 20,
-  },
+  page: { minHeight: "100vh", background: "#f8fafc", color: "#0f172a", fontFamily: "Inter, Arial, sans-serif", padding: 16 },
+  container: { maxWidth: 1500, margin: "0 auto" },
+  topBar: { display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 16, marginBottom: 20 },
   title: { margin: 0, fontSize: 34, fontWeight: 800 },
   subtitle: { margin: "6px 0 0", color: "#475569" },
   buttonRow: { display: "flex", flexWrap: "wrap", gap: 8 },
-  button: {
-    border: "1px solid #cbd5e1",
-    background: "white",
-    padding: "10px 14px",
-    borderRadius: 12,
-    cursor: "pointer",
-    fontWeight: 600,
-  },
-  dangerButton: {
-    border: "1px solid #fecaca",
-    background: "#ef4444",
-    color: "white",
-    padding: "10px 14px",
-    borderRadius: 12,
-    cursor: "pointer",
-    fontWeight: 700,
-  },
-  infoBox: {
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 18,
-    border: "1px solid #fcd34d",
-    background: "#fef3c7",
-  },
-  successBox: {
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 18,
-    border: "1px solid #86efac",
-    background: "#dcfce7",
-  },
-  layout: {
-    display: "grid",
-    gridTemplateColumns: "2fr 1fr",
-    gap: 20,
-    alignItems: "start",
-  },
-  card: {
-    background: "white",
-    border: "1px solid #e2e8f0",
-    borderRadius: 20,
-    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)",
-    overflow: "hidden",
-  },
-  cardHeader: {
-    padding: "18px 20px 8px",
-    borderBottom: "1px solid #f1f5f9",
-  },
+  button: { border: "1px solid #cbd5e1", background: "white", padding: "10px 14px", borderRadius: 12, cursor: "pointer", fontWeight: 600 },
+  dangerButton: { border: "1px solid #fecaca", background: "#ef4444", color: "white", padding: "10px 14px", borderRadius: 12, cursor: "pointer", fontWeight: 700 },
+  mutedButton: { border: "1px solid #bfdbfe", background: "#eff6ff", padding: "8px 12px", borderRadius: 10, cursor: "pointer", fontWeight: 600 },
+  infoBox: { borderRadius: 16, padding: 14, marginBottom: 18, border: "1px solid #fcd34d", background: "#fef3c7" },
+  successBox: { borderRadius: 16, padding: 14, marginBottom: 18, border: "1px solid #86efac", background: "#dcfce7" },
+  layout: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, alignItems: "start" },
+  card: { background: "white", border: "1px solid #e2e8f0", borderRadius: 20, boxShadow: "0 10px 30px rgba(15, 23, 42, 0.06)", overflow: "hidden" },
+  cardHeader: { padding: "18px 20px 8px", borderBottom: "1px solid #f1f5f9" },
   cardTitle: { margin: 0, fontSize: 20, fontWeight: 800 },
   cardBody: { padding: 20 },
   fieldGrid2: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 14 },
@@ -312,57 +321,20 @@ const styles = {
   field: { display: "flex", flexDirection: "column", gap: 6 },
   label: { fontSize: 14, fontWeight: 700 },
   subLabel: { fontSize: 12, fontWeight: 600, color: "#64748b" },
-  input: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontSize: 14,
-    background: "white",
-  },
-  textarea: {
-    width: "100%",
-    boxSizing: "border-box",
-    border: "1px solid #cbd5e1",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontSize: 14,
-    resize: "vertical",
-    minHeight: 110,
-    background: "white",
-  },
+  input: { width: "100%", boxSizing: "border-box", border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontSize: 14, background: "white" },
+  textarea: { width: "100%", boxSizing: "border-box", border: "1px solid #cbd5e1", borderRadius: 12, padding: "10px 12px", fontSize: 14, resize: "vertical", minHeight: 110, background: "white" },
   tabs: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 },
-  tab: {
-    border: "1px solid #cbd5e1",
-    background: "white",
-    borderRadius: 999,
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 700,
-  },
-  tabActive: {
-    border: "1px solid #0f172a",
-    background: "#0f172a",
-    color: "white",
-    borderRadius: 999,
-    padding: "10px 14px",
-    cursor: "pointer",
-    fontWeight: 700,
-  },
+  tab: { border: "1px solid #cbd5e1", background: "white", borderRadius: 999, padding: "10px 14px", cursor: "pointer", fontWeight: 700 },
+  tabActive: { border: "1px solid #0f172a", background: "#0f172a", color: "white", borderRadius: 999, padding: "10px 14px", cursor: "pointer", fontWeight: 700 },
   rightSticky: { position: "sticky", top: 16 },
-  badge: {
-    fontSize: 12,
-    padding: "5px 10px",
-    borderRadius: 999,
-    background: "#e2e8f0",
-    fontWeight: 700,
-  },
-  row: { display: "flex", gap: 8, alignItems: "center" },
+  badge: { fontSize: 12, padding: "5px 10px", borderRadius: 999, background: "#e2e8f0", fontWeight: 700 },
+  row: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   hint: { fontSize: 12, color: "#64748b", marginTop: 4 },
   testsList: { display: "flex", flexDirection: "column", gap: 8 },
   testOk: { color: "#166534", fontWeight: 600 },
   testBad: { color: "#b91c1c", fontWeight: 600 },
+  historyItem: { border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 8 },
+  historyMeta: { fontSize: 12, color: "#64748b" },
 };
 
 function Field({ label, value, onChange, placeholder, type = "text", readOnly = false }) {
@@ -400,9 +372,10 @@ function SelectField({ label, value, onChange, options, placeholder }) {
 }
 
 export default function KMCRKarta() {
-  const [form, setForm] = useState(() => createInitialForm());
+  const [form, setForm] = useState(() => loadCurrentForm() || createInitialForm());
   const [copyStatus, setCopyStatus] = useState({ type: "idle", message: "" });
   const [activeTab, setActiveTab] = useState("dane");
+  const [savedCards, setSavedCards] = useState(() => getSavedCards());
   const tests = useMemo(() => runTests(), []);
 
   const setTop = (key, value) => setForm((p) => ({ ...p, [key]: value }));
@@ -410,16 +383,19 @@ export default function KMCRKarta() {
 
   const gcsScore = useMemo(() => calculateGCS(form.badanie), [form.badanie]);
 
-  const generatedText = useMemo(() => {
-    const nextForm = {
-      ...form,
-      badanie: {
-        ...form.badanie,
-        glasgow: gcsScore,
-      },
-    };
-    return buildGeneratedText(nextForm);
-  }, [form, gcsScore]);
+  const normalizedForm = useMemo(() => ({
+    ...form,
+    badanie: {
+      ...form.badanie,
+      glasgow: gcsScore,
+    },
+  }), [form, gcsScore]);
+
+  const generatedText = useMemo(() => buildGeneratedText(normalizedForm), [normalizedForm]);
+
+  useEffect(() => {
+    saveCurrentForm(normalizedForm);
+  }, [normalizedForm]);
 
   const copyToClipboard = async () => {
     const result = await copyTextWithFallback(generatedText);
@@ -431,18 +407,60 @@ export default function KMCRKarta() {
   };
 
   const saveJson = () => {
-    const nextForm = { ...form, badanie: { ...form.badanie, glasgow: gcsScore } };
-    const blob = new Blob([JSON.stringify(nextForm, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(normalizedForm, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `kmcr-${form.numerKarty || "karta"}.json`;
+    a.download = `kmcr-${normalizedForm.numerKarty || "karta"}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
+  const saveCardToHistory = () => {
+    const summary = `${safeValue(normalizedForm.powodWezwania, "Brak powodu wezwania")} • ${safeValue(normalizedForm.miejsce, "Brak miejsca")}`;
+    const card = {
+      id: `${normalizedForm.numerKarty}-${Date.now()}`,
+      savedAt: new Date().toISOString(),
+      numerKarty: normalizedForm.numerKarty,
+      data: normalizedForm.data,
+      godzina: normalizedForm.godzina,
+      patient: normalizedForm.danePacjenta.imieNazwisko || "Pacjent NN",
+      summary,
+      form: normalizedForm,
+      text: generatedText,
+    };
+
+    const filtered = savedCards.filter((item) => item.numerKarty !== normalizedForm.numerKarty);
+    const next = [card, ...filtered].slice(0, 50);
+    setSavedCards(next);
+    saveCards(next);
+    setCopyStatus({ type: "success", message: `Zapisano kartę ${normalizedForm.numerKarty} w historii.` });
+  };
+
+  const loadSavedCard = (card) => {
+    setForm(card.form);
+    setActiveTab("dane");
+    setCopyStatus({ type: "success", message: `Wczytano kartę ${card.numerKarty}.` });
+  };
+
+  const deleteSavedCard = (id) => {
+    const next = savedCards.filter((card) => card.id !== id);
+    setSavedCards(next);
+    saveCards(next);
+  };
+
+  const exportCurrentPdf = () => {
+    downloadPdf(normalizedForm.numerKarty || "KMCR", generatedText);
+    setCopyStatus({ type: "success", message: "Wygenerowano PDF bieżącej karty." });
+  };
+
+  const exportSavedPdf = (card) => {
+    downloadPdf(card.numerKarty || "KMCR", card.text);
+  };
+
   const reset = () => {
-    setForm(createInitialForm());
+    const fresh = createInitialForm();
+    setForm(fresh);
     setCopyStatus({ type: "idle", message: "" });
     setActiveTab("dane");
   };
@@ -641,15 +659,7 @@ export default function KMCRKarta() {
     { key: "transport", label: "Transport" },
   ];
 
-  const tabRenderers = {
-    dane: renderDane,
-    pacjent: renderPacjent,
-    sample: renderSample,
-    abcde: renderABCDE,
-    terapia: renderTerapia,
-    transport: renderTransport,
-  };
-
+  const tabRenderers = { dane: renderDane, pacjent: renderPacjent, sample: renderSample, abcde: renderABCDE, terapia: renderTerapia, transport: renderTransport };
   const CurrentTab = tabRenderers[activeTab];
 
   return (
@@ -658,11 +668,13 @@ export default function KMCRKarta() {
         <div style={styles.topBar}>
           <div>
             <h1 style={styles.title}>Karta KMCR</h1>
-            <p style={styles.subtitle}>Wersja gotowa pod zwykły projekt React i GitHub Pages.</p>
+            <p style={styles.subtitle}>Wersja z historią kart i eksportem PDF.</p>
           </div>
           <div style={styles.buttonRow}>
             <button style={styles.button} onClick={copyToClipboard}>Kopiuj</button>
             <button style={styles.button} onClick={saveJson}>Zapisz JSON</button>
+            <button style={styles.button} onClick={saveCardToHistory}>Zapisz kartę</button>
+            <button style={styles.button} onClick={exportCurrentPdf}>Eksport PDF</button>
             <button style={styles.button} onClick={() => window.print()}>Drukuj</button>
             <button style={styles.dangerButton} onClick={reset}>Nowa karta</button>
           </div>
@@ -691,8 +703,31 @@ export default function KMCRKarta() {
                 </div>
               </div>
               <div style={styles.cardBody}>
-                <textarea style={{ ...styles.textarea, minHeight: 420, fontFamily: "ui-monospace, monospace", fontSize: 12 }} value={generatedText} readOnly />
+                <textarea style={{ ...styles.textarea, minHeight: 320, fontFamily: "ui-monospace, monospace", fontSize: 12 }} value={generatedText} readOnly />
                 <div style={styles.hint}>Jeżeli schowek jest zablokowany, zaznacz tekst ręcznie i użyj Ctrl+C.</div>
+              </div>
+            </div>
+
+            <div style={{ ...styles.card, marginTop: 20 }}>
+              <div style={styles.cardHeader}><h2 style={styles.cardTitle}>Historia kart</h2></div>
+              <div style={styles.cardBody}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {savedCards.length === 0 ? <div style={styles.hint}>Brak zapisanych kart.</div> : null}
+                  {savedCards.map((card) => (
+                    <div key={card.id} style={styles.historyItem}>
+                      <div>
+                        <div style={{ fontWeight: 800 }}>{card.numerKarty}</div>
+                        <div style={styles.historyMeta}>{card.patient} • {card.data} {card.godzina}</div>
+                        <div style={styles.historyMeta}>{card.summary}</div>
+                      </div>
+                      <div style={styles.row}>
+                        <button style={styles.mutedButton} onClick={() => loadSavedCard(card)}>Wczytaj</button>
+                        <button style={styles.mutedButton} onClick={() => exportSavedPdf(card)}>PDF</button>
+                        <button style={styles.mutedButton} onClick={() => deleteSavedCard(card.id)}>Usuń</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
